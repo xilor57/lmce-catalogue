@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LMCE — Catalogue & Achats</title>
+<style>
+    :root {
+        --bg: #0B1220;
+        --card: #131C2E;
+        --card-hover: #182238;
+        --border: #24304A;
+        --text: #E5EAF3;
+        --text-muted: #94A3B8;
+        --text-faint: #64748B;
+        --blue: #60A5FA;
+        --blue-dim: rgba(96,165,250,.12);
+        --lime: #A3E635;
+        --amber: #FBBF24;
+        --radius: 10px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        font-size: 14px;
+        min-height: 100vh;
+    }
+
+    /* ─── Header ─── */
+    header {
+        position: sticky; top: 0; z-index: 20;
+        background: linear-gradient(180deg, #0E1730 0%, rgba(11,18,32,.97) 100%);
+        border-bottom: 1px solid var(--border);
+        backdrop-filter: blur(8px);
+    }
+    .header-inner {
+        max-width: 1400px; margin: 0 auto; padding: 18px 24px 0;
+    }
+    .brand { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .brand h1 {
+        font-size: 22px; font-weight: 800; letter-spacing: -0.02em;
+        background: linear-gradient(90deg, var(--blue), var(--lime));
+        -webkit-background-clip: text; background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    .brand .sub { color: var(--text-faint); font-size: 12px; width: 100%; margin-top: -4px; }
+    .logo { width: 40px; height: 40px; flex-shrink: 0; filter: drop-shadow(0 0 12px rgba(163,230,53,.35)); }
+    .header-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+    .updated { font-size: 11px; color: var(--text-faint); }
+    .btn-refresh {
+        padding: 7px 14px; border-radius: 8px; border: 1px solid var(--border);
+        background: var(--card); color: var(--text-muted); font-size: 13px;
+        cursor: pointer; transition: all .15s; display: flex; align-items: center; gap: 6px;
+    }
+    .btn-refresh:hover { border-color: var(--blue); color: var(--blue); }
+    .btn-refresh:disabled { opacity: .5; cursor: default; }
+
+    /* ─── Tabs ─── */
+    .tabs { display: flex; gap: 4px; margin-top: 16px; }
+    .tab {
+        padding: 10px 22px; border: none; background: transparent;
+        color: var(--text-muted); font-size: 14px; font-weight: 600;
+        cursor: pointer; border-bottom: 3px solid transparent;
+        transition: all .15s; display: flex; align-items: center; gap: 8px;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--text); border-bottom-color: var(--lime); }
+    .tab .count {
+        font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 10px;
+        background: var(--blue-dim); color: var(--blue);
+    }
+
+    /* ─── Layout ─── */
+    main { max-width: 1400px; margin: 0 auto; padding: 20px 24px 60px; }
+
+    /* ─── Toolbar ─── */
+    .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+    .search {
+        flex: 1; min-width: 220px; padding: 9px 16px;
+        border-radius: 8px; border: 1px solid var(--border);
+        background: var(--card); color: var(--text); font-size: 13px; outline: none;
+        transition: border-color .15s;
+    }
+    .search:focus { border-color: var(--blue); }
+    select, .dir-btn {
+        padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+        background: var(--card); color: var(--text); font-size: 12px;
+        cursor: pointer; outline: none;
+    }
+    select:hover, .dir-btn:hover { border-color: var(--blue); }
+    .filter-group { display: flex; align-items: center; gap: 6px; }
+    .filter-group label { font-size: 12px; color: var(--text-faint); font-weight: 600; white-space: nowrap; }
+
+    /* ─── Category chips ─── */
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+    .chip {
+        padding: 5px 14px; border-radius: 20px; border: 1px solid var(--border);
+        background: transparent; color: var(--text-muted); font-size: 12px;
+        cursor: pointer; transition: all .15s;
+    }
+    .chip:hover { background: rgba(255,255,255,.04); }
+    .chip.active { border-color: var(--blue); background: var(--blue-dim); color: var(--blue); font-weight: 600; }
+    .chip.active.fav { border-color: var(--amber); background: rgba(251,191,36,.1); color: var(--amber); }
+
+    /* ─── Stats bar ─── */
+    .stats {
+        display: flex; gap: 24px; flex-wrap: wrap;
+        padding: 12px 18px; margin-bottom: 16px;
+        background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    }
+    .stat .v { font-size: 18px; font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; }
+    .stat .l { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .05em; }
+    .stat .v.accent { color: var(--lime); }
+
+    /* ─── Table ─── */
+    .table-wrap {
+        overflow-x: auto; border: 1px solid var(--border);
+        border-radius: var(--radius); background: var(--card);
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead th {
+        position: sticky; top: 0;
+        padding: 12px; text-align: right; white-space: nowrap;
+        background: #0F1830; color: var(--text-muted);
+        font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+        border-bottom: 2px solid var(--border);
+    }
+    thead th.l, td.l { text-align: left; }
+    tbody td {
+        padding: 9px 12px; text-align: right; white-space: nowrap;
+        color: var(--text-muted); border-bottom: 1px solid rgba(36,48,74,.5);
+    }
+    tbody tr { transition: background .1s; }
+    tbody tr:hover { background: var(--card-hover); }
+    tbody tr:last-child td { border-bottom: none; }
+    .ref { font-family: 'Cascadia Code', Consolas, monospace; color: var(--blue); font-size: 12px; }
+    .desig { color: var(--text); max-width: 380px; overflow: hidden; text-overflow: ellipsis; }
+    .num { font-family: Consolas, monospace; font-size: 12px; font-variant-numeric: tabular-nums; }
+    .cat-badge {
+        padding: 2px 9px; border-radius: 10px; background: var(--blue-dim);
+        color: var(--blue); font-size: 11px;
+    }
+    .star { color: var(--amber); font-size: 14px; }
+    .star.off { color: #374151; }
+    .empty { padding: 48px; text-align: center; color: var(--text-faint); }
+
+    /* ─── Pagination ─── */
+    .pager {
+        display: flex; align-items: center; justify-content: space-between;
+        flex-wrap: wrap; gap: 10px; margin-top: 14px;
+        font-size: 12px; color: var(--text-faint);
+    }
+    .pager .btns { display: flex; align-items: center; gap: 8px; }
+    .pager button {
+        padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border);
+        background: var(--card); color: var(--text); font-size: 12px; cursor: pointer;
+    }
+    .pager button:disabled { opacity: .4; cursor: default; }
+    .pager button:not(:disabled):hover { border-color: var(--blue); }
+
+    /* ─── Loader / error ─── */
+    .loader { text-align: center; padding: 80px 20px; color: var(--text-faint); }
+    .loader .spin {
+        width: 36px; height: 36px; margin: 0 auto 16px;
+        border: 3px solid var(--border); border-top-color: var(--lime);
+        border-radius: 50%; animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error-box {
+        max-width: 480px; margin: 60px auto; padding: 24px;
+        background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.3);
+        border-radius: var(--radius); color: #FCA5A5; text-align: center; font-size: 13px;
+    }
+    .pulse { animation: pulse 1.2s ease-in-out infinite; display: inline-block; }
+    @keyframes pulse { 50% { opacity: .3; transform: rotate(20deg); } }
+
+    footer {
+        text-align: center; padding: 20px; color: var(--text-faint); font-size: 11px;
+        border-top: 1px solid var(--border);
+    }
+
+    @media (max-width: 720px) {
+        .header-inner, main { padding-left: 14px; padding-right: 14px; }
+        .desig { max-width: 200px; }
+        .brand h1 { font-size: 18px; }
+    }
+</style>
+</head>
+<body>
+
+<header>
+    <div class="header-inner">
+        <div class="brand">
+            <svg class="logo" viewBox="0 0 64 64" fill="none">
+                <defs>
+                    <linearGradient id="lg" x1="0" y1="0" x2="64" y2="64">
+                        <stop offset="0" stop-color="#60A5FA"/><stop offset="1" stop-color="#A3E635"/>
+                    </linearGradient>
+                </defs>
+                <path d="M32 6C21 6 13 14.5 13 25c0 7 3.5 12 8 15.5 2.5 2 4 4.5 4 7.5h14c0-3 1.5-5.5 4-7.5C47.5 37 51 32 51 25 51 14.5 43 6 32 6z" stroke="url(#lg)" stroke-width="3.5" fill="none" stroke-linejoin="round"/>
+                <path d="M26 52h12M27 57h10" stroke="url(#lg)" stroke-width="3.5" stroke-linecap="round"/>
+                <path d="M32 18v10m0 0l-5-5m5 5l5-5" stroke="url(#lg)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" opacity=".0"/>
+                <path d="M27 25c0-3 2-5 5-5" stroke="url(#lg)" stroke-width="2.5" stroke-linecap="round"/>
+            </svg>
+            <h1>Catalogue &amp; Achats</h1>
+            <div class="header-right">
+                <span class="updated" id="updatedAt"></span>
+                <button class="btn-refresh" id="btnRefresh" onclick="loadData(true)">↻ Actualiser</button>
+            </div>
+            <div class="sub">LMCE · électricité générale — consultation en lecture seule</div>
+        </div>
+        <div class="tabs">
+            <button class="tab active" id="tabCatalogue" onclick="switchTab('catalogue')">📦 Catalogue <span class="count" id="countMaterials"></span></button>
+            <button class="tab" id="tabAchats" onclick="switchTab('achats')">🧾 Achats <span class="count" id="countPurchases"></span></button>
+        </div>
+    </div>
+</header>
+
+<main id="app">
+    <div class="loader"><div class="spin"></div>Chargement des données…</div>
+</main>
+
+<footer>Données en lecture seule · mise à jour en direct depuis la base LMCE</footer>
+
+<script>
+'use strict';
+
+const SUPABASE_URL = 'https://tngktylqmmzxbhxojcwt.supabase.co';
+const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRuZ2t0eWxxbW16eGJoeG9qY3d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNTczNjMsImV4cCI6MjA4ODYzMzM2M30.9wvNlFiz7D0PwE_z0-cFspl1-FFju79FZu1SrzHfJmE';
+
+// ─── État ────────────────────────────────────────────────────────────────────
+
+const DB = { materials: [], purchases: [], avgPrice: new Map() };
+
+const cat = { search: '', category: 'Tous', brand: '', gamme: '', sort: 'designation', dir: 'asc', page: 1 };
+const pur = { search: '', project: '', supplier: '', period: 'all', sort: 'date', dir: 'desc', page: 1 };
+let currentTab = 'catalogue';
+const PAGE_SIZE = 50;
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmtEur = v => v == null ? '—' : v.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+const fmtDate = iso => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+};
+const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+
+// ─── Chargement Supabase (lecture seule, GET uniquement) ─────────────────────
+
+async function fetchAll(table, query) {
+    const CHUNK = 1000;
+    let from = 0, all = [];
+    for (;;) {
+        const sep = query.includes('?') ? '&' : '?';
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/${query}${sep}offset=${from}&limit=${CHUNK}`, {
+            headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
+        });
+        if (!res.ok) throw new Error(`${table}: HTTP ${res.status}`);
+        const rows = await res.json();
+        all = all.concat(rows);
+        if (rows.length < CHUNK) break;
+        from += CHUNK;
+    }
+    return all;
+}
+
+async function loadData(force) {
+    const btn = document.getElementById('btnRefresh');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="pulse">↻</span> Chargement…';
+    try {
+        const [materials, purchases] = await Promise.all([
+            fetchAll('materials', 'materials?select=id,reference,designation,brand,gamme,category,unit,is_favorite,last_purchase_price,purchase_count,created_at&order=designation'),
+            fetchAll('purchases', 'purchases?select=id,quantity,unit_price,supplier,purchase_date,created_at,doc_reference,material_id,materials(reference,designation,brand),projects(name)&order=purchase_date.desc.nullslast,created_at.desc'),
+        ]);
+        DB.materials = materials;
+        DB.purchases = purchases;
+        computeAvgPrices();
+        document.getElementById('countMaterials').textContent = materials.length;
+        document.getElementById('countPurchases').textContent = purchases.length;
+        document.getElementById('updatedAt').textContent = 'Mis à jour ' + new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        render();
+    } catch (e) {
+        document.getElementById('app').innerHTML =
+            `<div class="error-box"><b>Erreur de chargement</b><br><br>${esc(e.message)}<br><br>Vérifiez votre connexion puis <a href="" style="color:#FCA5A5">rechargez la page</a>.</div>`;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '↻ Actualiser';
+    }
+}
+
+// Prix moyen pondéré sur les 6 derniers mois (même logique que l'app)
+function computeAvgPrices() {
+    const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth() - 6);
+    const acc = new Map();
+    for (const p of DB.purchases) {
+        if (!p.material_id) continue;
+        const d = p.purchase_date || p.created_at;
+        if (d < cutoff.toISOString()) continue;
+        const e = acc.get(p.material_id) || { s: 0, q: 0 };
+        e.s += p.quantity * p.unit_price; e.q += p.quantity;
+        acc.set(p.material_id, e);
+    }
+    DB.avgPrice = new Map([...acc].filter(([, v]) => v.q > 0).map(([k, v]) => [k, v.s / v.q]));
+}
+
+// ─── Navigation ──────────────────────────────────────────────────────────────
+
+function switchTab(tab) {
+    currentTab = tab;
+    document.getElementById('tabCatalogue').classList.toggle('active', tab === 'catalogue');
+    document.getElementById('tabAchats').classList.toggle('active', tab === 'achats');
+    render();
+}
+
+// ─── Catalogue ───────────────────────────────────────────────────────────────
+
+function catalogFiltered() {
+    const s = cat.search.toLowerCase();
+    const list = DB.materials.filter(m => {
+        if (s && !((m.reference || '').toLowerCase().includes(s)
+            || m.designation.toLowerCase().includes(s)
+            || (m.brand || '').toLowerCase().includes(s))) return false;
+        if (cat.category === 'Favoris' && !m.is_favorite) return false;
+        if (cat.category !== 'Tous' && cat.category !== 'Favoris' && m.category !== cat.category) return false;
+        if (cat.brand && m.brand !== cat.brand) return false;
+        if (cat.gamme && m.gamme !== cat.gamme) return false;
+        return true;
+    });
+    const dir = cat.dir === 'asc' ? 1 : -1;
+    const cs = (a, b) => { // chaînes vides en fin de liste
+        if (!a && !b) return 0; if (!a) return 1; if (!b) return -1;
+        return String(a).toLowerCase().localeCompare(String(b).toLowerCase(), 'fr') * dir;
+    };
+    list.sort((a, b) => {
+        if (cat.category === 'Tous') {
+            if (a.is_favorite && !b.is_favorite) return -1;
+            if (!a.is_favorite && b.is_favorite) return 1;
+        }
+        switch (cat.sort) {
+            case 'reference': return cs(a.reference, b.reference);
+            case 'brand': return cs(a.brand, b.brand);
+            case 'gamme': return cs(a.gamme, b.gamme);
+            case 'created_at': return (a.created_at < b.created_at ? -1 : 1) * dir;
+            case 'last_price': return ((a.last_purchase_price ?? -1) - (b.last_purchase_price ?? -1)) * dir;
+            case 'purchase_count': return ((a.purchase_count ?? 0) - (b.purchase_count ?? 0)) * dir;
+            default: return a.designation.localeCompare(b.designation, 'fr') * dir;
+        }
+    });
+    return list;
+}
+
+function renderCatalogue() {
+    const categories = [...new Set(DB.materials.map(m => m.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
+    const brands = [...new Set(DB.materials.map(m => m.brand).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
+    const gammes = [...new Set(DB.materials.filter(m => !cat.brand || m.brand === cat.brand).map(m => m.gamme).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
+    const favCount = DB.materials.filter(m => m.is_favorite).length;
+
+    const filtered = catalogFiltered();
+    const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    if (cat.page > pages) cat.page = pages;
+    const paged = filtered.slice((cat.page - 1) * PAGE_SIZE, cat.page * PAGE_SIZE);
+
+    return `
+    <div class="toolbar">
+        <input class="search" placeholder="Rechercher référence, désignation, marque…"
+            value="${esc(cat.search)}" oninput="catSearch(this.value)">
+        <div class="filter-group"><label>Marque</label>
+            <select onchange="catSet('brand', this.value)">
+                <option value="">Toutes</option>
+                ${brands.map(b => `<option ${cat.brand === b ? 'selected' : ''}>${esc(b)}</option>`).join('')}
+            </select>
+        </div>
+        <div class="filter-group"><label>Gamme</label>
+            <select onchange="catSet('gamme', this.value)">
+                <option value="">Toutes</option>
+                ${gammes.map(g => `<option ${cat.gamme === g ? 'selected' : ''}>${esc(g)}</option>`).join('')}
+            </select>
+        </div>
+        <div class="filter-group"><label>Trier par</label>
+            <select onchange="catSort(this.value)">
+                ${[['designation', 'Désignation'], ['reference', 'Référence'], ['brand', 'Marque'], ['gamme', 'Gamme'],
+                   ['last_price', 'Dernier prix'], ['purchase_count', 'Nb achats'], ['created_at', "Date d'ajout"]]
+                    .map(([v, l]) => `<option value="${v}" ${cat.sort === v ? 'selected' : ''}>${l}</option>`).join('')}
+            </select>
+            <button class="dir-btn" title="Inverser le sens" onclick="catDir()">${cat.dir === 'asc' ? '↑ Croissant' : '↓ Décroissant'}</button>
+        </div>
+    </div>
+
+    <div class="chips">
+        <button class="chip ${cat.category === 'Tous' ? 'active' : ''}" onclick="catSet('category','Tous')">Tous</button>
+        ${favCount ? `<button class="chip fav ${cat.category === 'Favoris' ? 'active' : ''}" onclick="catSet('category','Favoris')">★ Favoris (${favCount})</button>` : ''}
+        ${categories.map(c => `<button class="chip ${cat.category === c ? 'active' : ''}" onclick="catSet('category',decodeURIComponent('${encodeURIComponent(c)}'))">${esc(c)}</button>`).join('')}
+    </div>
+
+    <div class="stats">
+        <div class="stat"><div class="v accent">${filtered.length}</div><div class="l">articles</div></div>
+        <div class="stat"><div class="v">${filtered.reduce((n, m) => n + (m.purchase_count || 0), 0)}</div><div class="l">achats cumulés</div></div>
+        <div class="stat"><div class="v">${new Set(filtered.map(m => m.brand).filter(Boolean)).size}</div><div class="l">marques</div></div>
+    </div>
+
+    <div class="table-wrap"><table>
+        <thead><tr>
+            <th style="width:36px"></th><th class="l">Référence</th><th class="l">Désignation</th>
+            <th>Marque</th><th>Gamme</th><th>Catégorie</th><th>Unité</th>
+            <th>Dernier prix</th><th>Prix moyen 6m</th><th>Nb achats</th>
+        </tr></thead>
+        <tbody>
+        ${paged.length === 0 ? `<tr><td colspan="10" class="empty">Aucun article ne correspond aux filtres.</td></tr>` : paged.map(m => `
+            <tr>
+                <td><span class="star ${m.is_favorite ? '' : 'off'}">${m.is_favorite ? '★' : '☆'}</span></td>
+                <td class="l"><span class="ref">${esc(m.reference)}</span></td>
+                <td class="l desig" title="${esc(m.designation)}">${esc(m.designation)}</td>
+                <td>${esc(m.brand) || '—'}</td>
+                <td style="font-size:12px;color:var(--text-faint)">${esc(m.gamme) || '—'}</td>
+                <td>${m.category ? `<span class="cat-badge">${esc(m.category)}</span>` : '—'}</td>
+                <td>${esc(m.unit)}</td>
+                <td class="num">${fmtEur(m.last_purchase_price)}</td>
+                <td class="num">${DB.avgPrice.has(m.id) ? fmtEur(DB.avgPrice.get(m.id)) : '—'}</td>
+                <td class="num" style="color:${(m.purchase_count || 0) > 0 ? 'var(--lime)' : 'var(--text-faint)'}">${m.purchase_count || 0}</td>
+            </tr>`).join('')}
+        </tbody>
+    </table></div>
+    ${pager(filtered.length, cat.page, 'catPage')}`;
+}
+
+// ─── Achats ──────────────────────────────────────────────────────────────────
+
+function purchasesFiltered() {
+    const s = pur.search.toLowerCase();
+    const cutoff = { '30j': 30, '6m': 180, '1a': 365 }[pur.period];
+    const minDate = cutoff ? new Date(Date.now() - cutoff * 864e5).toISOString() : null;
+    const list = DB.purchases.filter(p => {
+        const label = `${p.materials?.reference || ''} ${p.materials?.designation || ''} ${p.supplier || ''} ${p.doc_reference || ''}`.toLowerCase();
+        if (s && !label.includes(s)) return false;
+        if (pur.project && p.projects?.name !== pur.project) return false;
+        if (pur.supplier && (p.supplier || '') !== pur.supplier) return false;
+        if (minDate && (p.purchase_date || p.created_at) < minDate) return false;
+        return true;
+    });
+    const dir = pur.dir === 'asc' ? 1 : -1;
+    list.sort((a, b) => {
+        switch (pur.sort) {
+            case 'designation': return (a.materials?.designation || '').localeCompare(b.materials?.designation || '', 'fr') * dir;
+            case 'amount': return (a.quantity * a.unit_price - b.quantity * b.unit_price) * dir;
+            case 'supplier': return (a.supplier || '').localeCompare(b.supplier || '', 'fr') * dir;
+            default: return ((a.purchase_date || a.created_at) < (b.purchase_date || b.created_at) ? -1 : 1) * dir;
+        }
+    });
+    return list;
+}
+
+function renderAchats() {
+    const projects = [...new Set(DB.purchases.map(p => p.projects?.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
+    const suppliers = [...new Set(DB.purchases.map(p => p.supplier).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
+
+    const filtered = purchasesFiltered();
+    const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    if (pur.page > pages) pur.page = pages;
+    const paged = filtered.slice((pur.page - 1) * PAGE_SIZE, pur.page * PAGE_SIZE);
+    const totalAmount = filtered.reduce((n, p) => n + p.quantity * p.unit_price, 0);
+
+    return `
+    <div class="toolbar">
+        <input class="search" placeholder="Rechercher article, fournisseur, n° de document…"
+            value="${esc(pur.search)}" oninput="purSearch(this.value)">
+        <div class="filter-group"><label>Chantier</label>
+            <select onchange="purSet('project', this.value)">
+                <option value="">Tous</option>
+                ${projects.map(n => `<option ${pur.project === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}
+            </select>
+        </div>
+        <div class="filter-group"><label>Fournisseur</label>
+            <select onchange="purSet('supplier', this.value)">
+                <option value="">Tous</option>
+                ${suppliers.map(n => `<option ${pur.supplier === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}
+            </select>
+        </div>
+        <div class="filter-group"><label>Période</label>
+            <select onchange="purSet('period', this.value)">
+                ${[['all', 'Tout'], ['30j', '30 jours'], ['6m', '6 mois'], ['1a', '1 an']]
+                    .map(([v, l]) => `<option value="${v}" ${pur.period === v ? 'selected' : ''}>${l}</option>`).join('')}
+            </select>
+        </div>
+        <div class="filter-group"><label>Trier par</label>
+            <select onchange="purSort(this.value)">
+                ${[['date', 'Date'], ['designation', 'Article'], ['amount', 'Montant'], ['supplier', 'Fournisseur']]
+                    .map(([v, l]) => `<option value="${v}" ${pur.sort === v ? 'selected' : ''}>${l}</option>`).join('')}
+            </select>
+            <button class="dir-btn" title="Inverser le sens" onclick="purDir()">${pur.dir === 'asc' ? '↑ Croissant' : '↓ Décroissant'}</button>
+        </div>
+    </div>
+
+    <div class="stats">
+        <div class="stat"><div class="v accent">${filtered.length}</div><div class="l">achats</div></div>
+        <div class="stat"><div class="v">${fmtEur(totalAmount)}</div><div class="l">montant total HT</div></div>
+        <div class="stat"><div class="v">${new Set(filtered.map(p => p.supplier).filter(Boolean)).size}</div><div class="l">fournisseurs</div></div>
+    </div>
+
+    <div class="table-wrap"><table>
+        <thead><tr>
+            <th class="l">Date</th><th class="l">Référence</th><th class="l">Désignation</th>
+            <th>Qté</th><th>Prix unit.</th><th>Total HT</th><th>Fournisseur</th><th>Chantier</th>
+        </tr></thead>
+        <tbody>
+        ${paged.length === 0 ? `<tr><td colspan="8" class="empty">Aucun achat ne correspond aux filtres.</td></tr>` : paged.map(p => `
+            <tr>
+                <td class="l num">${fmtDate(p.purchase_date || p.created_at)}</td>
+                <td class="l"><span class="ref">${esc(p.materials?.reference) || '—'}</span></td>
+                <td class="l desig" title="${esc(p.materials?.designation || '')}">${esc(p.materials?.designation) || '—'}</td>
+                <td class="num">${p.quantity}</td>
+                <td class="num">${fmtEur(p.unit_price)}</td>
+                <td class="num" style="color:var(--lime);font-weight:600">${fmtEur(p.quantity * p.unit_price)}</td>
+                <td>${esc(p.supplier) || '—'}</td>
+                <td style="font-size:12px">${esc(p.projects?.name) || '<span style="color:var(--text-faint)">—</span>'}</td>
+            </tr>`).join('')}
+        </tbody>
+    </table></div>
+    ${pager(filtered.length, pur.page, 'purPage')}`;
+}
+
+// ─── Composants partagés & actions ───────────────────────────────────────────
+
+function pager(total, page, fn) {
+    const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    return `
+    <div class="pager">
+        <span>${total} résultat${total > 1 ? 's' : ''} · page ${page} / ${pages}</span>
+        <div class="btns">
+            <button onclick="${fn}(-1)" ${page <= 1 ? 'disabled' : ''}>← Précédent</button>
+            <button onclick="${fn}(1)" ${page >= pages ? 'disabled' : ''}>Suivant →</button>
+        </div>
+    </div>`;
+}
+
+const rerender = debounce(render, 150);
+function render() {
+    document.getElementById('app').innerHTML = currentTab === 'catalogue' ? renderCatalogue() : renderAchats();
+}
+
+function catSearch(v) { cat.search = v; cat.page = 1; rerender(); }
+function catSet(k, v) { cat[k] = v; if (k === 'brand') cat.gamme = ''; cat.page = 1; render(); }
+function catSort(v) { cat.sort = v; cat.dir = (v === 'created_at' || v === 'purchase_count' || v === 'last_price') ? 'desc' : 'asc'; cat.page = 1; render(); }
+function catDir() { cat.dir = cat.dir === 'asc' ? 'desc' : 'asc'; render(); }
+function catPage(d) { cat.page += d; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+
+function purSearch(v) { pur.search = v; pur.page = 1; rerender(); }
+function purSet(k, v) { pur[k] = v; pur.page = 1; render(); }
+function purSort(v) { pur.sort = v; pur.dir = v === 'date' || v === 'amount' ? 'desc' : 'asc'; pur.page = 1; render(); }
+function purDir() { pur.dir = pur.dir === 'asc' ? 'desc' : 'asc'; render(); }
+function purPage(d) { pur.page += d; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+
+// ─── Init ────────────────────────────────────────────────────────────────────
+
+loadData();
+</script>
+</body>
+</html>
