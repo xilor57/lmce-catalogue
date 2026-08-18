@@ -226,6 +226,20 @@
         cursor: pointer; border: 1px solid; transition: filter .15s;
     }
     .doc-badge:hover { filter: brightness(1.4); }
+    .doc-btn {
+        padding: 3px 10px; border-radius: 6px; border: 1px solid var(--border);
+        background: var(--bg); color: var(--text-muted); font-size: 11px; cursor: pointer;
+        transition: all .15s;
+    }
+    .doc-btn:hover { border-color: var(--blue); color: var(--blue); }
+    .doc-btn.open { border-color: var(--blue); color: var(--blue); background: var(--blue-dim); }
+    tr.doc-row td { background: rgba(96,165,250,.05); padding: 6px 12px 10px; }
+    .chart-box { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 18px; }
+    .supp-table { width: 100%; margin-top: 12px; font-size: 11px; border-collapse: collapse; }
+    .supp-table th { color: var(--text-faint); text-transform: uppercase; font-size: 10px; text-align: right; padding: 4px 6px; font-weight: 600; }
+    .supp-table th:first-child { text-align: left; }
+    .supp-table td { padding: 4px 6px; text-align: right; border-top: 1px solid var(--border); }
+    .supp-table td:first-child { text-align: left; color: var(--text-muted); }
     .doc-iframe { flex: 1; border: none; background: #525659; }
     .doc-fallback { padding: 8px 22px; font-size: 12px; color: var(--text-faint); border-top: 1px solid var(--border); }
     .doc-fallback a { color: var(--blue); }
@@ -339,7 +353,7 @@ async function loadData(force) {
     try {
         const [materials, purchases] = await Promise.all([
             fetchAll('materials', 'materials?select=id,reference,designation,brand,gamme,category,unit,is_favorite,last_purchase_price,created_at&order=designation'),
-            fetchAll('purchases', 'purchases?select=id,quantity,unit_price,supplier,purchase_date,created_at,doc_type,doc_reference,doc_drive_file_id,material_id,materials(reference,designation,brand),projects(name)&order=purchase_date.desc.nullslast,created_at.desc'),
+            fetchAll('purchases', 'purchases?select=id,quantity,unit_price,supplier,purchase_date,created_at,doc_type,doc_reference,doc_drive_file_id,material_id,materials(reference,designation,brand),projects(name),purchase_documents(doc_type,doc_reference,drive_file_id,purchase_date)&order=purchase_date.desc.nullslast,created_at.desc'),
         ]);
         DB.materials = materials;
         DB.purchases = purchases;
@@ -580,7 +594,10 @@ function renderAchats() {
             <th>Qté</th><th>Prix unit.</th><th>Total HT</th><th>Fournisseur</th><th>Chantier</th><th>Doc</th>
         </tr></thead>
         <tbody>
-        ${paged.length === 0 ? `<tr><td colspan="9" class="empty">Aucun achat ne correspond aux filtres.</td></tr>` : paged.map(p => `
+        ${paged.length === 0 ? `<tr><td colspan="9" class="empty">Aucun achat ne correspond aux filtres.</td></tr>` : paged.map(p => {
+            const docs = docsOf(p);
+            const isOpen = expandedDocs.has(p.id);
+            return `
             <tr>
                 <td class="l num">${fmtDate(p.purchase_date || p.created_at)}</td>
                 <td class="l">${p.materials?.reference
@@ -592,8 +609,16 @@ function renderAchats() {
                 <td class="num" style="color:var(--lime);font-weight:600">${fmtEur(p.quantity * p.unit_price)}</td>
                 <td>${esc(p.supplier) || '—'}</td>
                 <td style="font-size:12px">${esc(p.projects?.name) || '<span style="color:var(--text-faint)">—</span>'}</td>
-                <td>${docBadge(p)}</td>
-            </tr>`).join('')}
+                <td>${docs.length === 0
+                    ? '<span style="color:var(--text-faint)">—</span>'
+                    : `<button class="doc-btn ${isOpen ? 'open' : ''}" title="${docs.length} document(s)" onclick="toggleDocs('${p.id}')">📄 ${docs.length > 1 ? docs.length : ''} ${isOpen ? '▲' : '▼'}</button>`}</td>
+            </tr>
+            ${isOpen ? `<tr class="doc-row"><td colspan="9">
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                    ${docs.map(d => docBadgeDoc(d) + (d.date ? `<span style="font-size:11px;color:var(--text-faint)">${fmtDate(d.date)}</span>` : '')).join('')}
+                </div>
+            </td></tr>` : ''}`;
+        }).join('')}
         </tbody>
     </table></div>
     ${pager(filtered.length, pur.page, 'purPage')}`;
@@ -638,17 +663,100 @@ const DOC_META = {
     confirmation_commande: { label: 'CC / AR',     color: '#3B82F6' },
     facture:               { label: 'FACTURE',     color: '#8B5CF6' },
 };
+const DOC_ORDER = { devis: 0, devis_signe: 1, confirmation_commande: 2, facture: 3 };
 
-function docBadge(p) {
-    if (!p.doc_type) return '<span style="color:var(--text-faint)">—</span>';
-    const meta = DOC_META[p.doc_type] || { label: p.doc_type.toUpperCase(), color: '#9CA3AF' };
-    const label = meta.label + (p.doc_reference ? ' ' + p.doc_reference : '');
-    if (!p.doc_drive_file_id) {
-        return `<span class="doc-badge" style="color:${meta.color};border-color:${meta.color}55;background:${meta.color}18;cursor:default">${esc(label)}</span>`;
+// Tous les documents d'un achat (devis + AR + facture…), triés chronologiquement
+function docsOf(p) {
+    let docs = (p.purchase_documents || []).map(d => ({
+        doc_type: d.doc_type, doc_reference: d.doc_reference,
+        drive_file_id: d.drive_file_id, date: d.purchase_date,
+    }));
+    if (!docs.length && p.doc_type) {
+        docs = [{ doc_type: p.doc_type, doc_reference: p.doc_reference, drive_file_id: p.doc_drive_file_id, date: p.purchase_date }];
     }
-    return `<span class="doc-badge" style="color:${meta.color};border-color:${meta.color}55;background:${meta.color}18"
-        title="Aperçu du document"
-        onclick="event.stopPropagation();openDoc('${p.doc_drive_file_id}', decodeURIComponent('${encodeURIComponent(label)}'))">${esc(label)} 👁</span>`;
+    return docs.sort((a, b) => (DOC_ORDER[a.doc_type] ?? 9) - (DOC_ORDER[b.doc_type] ?? 9));
+}
+
+function docBadgeDoc(d) {
+    const meta = DOC_META[d.doc_type] || { label: (d.doc_type || 'DOC').toUpperCase(), color: '#9CA3AF' };
+    const label = meta.label + (d.doc_reference ? ' ' + d.doc_reference : '');
+    const style = `color:${meta.color};border-color:${meta.color}55;background:${meta.color}18`;
+    if (!d.drive_file_id) return `<span class="doc-badge" style="${style};cursor:default">${esc(label)}</span>`;
+    return `<span class="doc-badge" style="${style}" title="Aperçu du document"
+        onclick="event.stopPropagation();openDoc('${d.drive_file_id}', decodeURIComponent('${encodeURIComponent(label)}'))">${esc(label)} 👁</span>`;
+}
+
+// Lignes de documents dépliées dans l'onglet Achats
+const expandedDocs = new Set();
+function toggleDocs(id) {
+    if (expandedDocs.has(id)) expandedDocs.delete(id); else expandedDocs.add(id);
+    render();
+}
+
+// ─── Graphiques (SVG maison, aucune librairie) ──────────────────────────────
+
+function priceChartSVG(hist) {
+    const pts = hist.map(p => ({ d: p.purchase_date || p.created_at, price: p.unit_price }))
+        .sort((a, b) => a.d < b.d ? -1 : 1);
+    if (pts.length < 2) return '';
+    const W = 620, H = 160, PL = 50, PR = 14, PT = 14, PB = 26;
+    const prices = pts.map(p => p.price);
+    let lo = Math.min(...prices), hi = Math.max(...prices);
+    if (lo === hi) { lo -= 1; hi += 1; }
+    const X = i => PL + i * (W - PL - PR) / (pts.length - 1);
+    const Y = v => PT + (1 - (v - lo) / (hi - lo)) * (H - PT - PB);
+    const line = pts.map((p, i) => `${X(i).toFixed(1)},${Y(p.price).toFixed(1)}`).join(' ');
+    const dots = pts.map((p, i) =>
+        `<circle cx="${X(i).toFixed(1)}" cy="${Y(p.price).toFixed(1)}" r="4" fill="#A3E635" stroke="#0B1220" stroke-width="1.5"><title>${fmtDate(p.d)} — ${fmtEur(p.price)}</title></circle>`
+    ).join('');
+    return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img">
+        <line x1="${PL}" y1="${Y(hi)}" x2="${W - PR}" y2="${Y(hi)}" stroke="#24304A" stroke-dasharray="3 4"/>
+        <line x1="${PL}" y1="${Y(lo)}" x2="${W - PR}" y2="${Y(lo)}" stroke="#24304A" stroke-dasharray="3 4"/>
+        <text x="${PL - 6}" y="${Y(hi) + 3}" fill="#64748B" font-size="10" text-anchor="end">${fmtEur(hi)}</text>
+        <text x="${PL - 6}" y="${Y(lo) + 3}" fill="#64748B" font-size="10" text-anchor="end">${fmtEur(lo)}</text>
+        <text x="${PL}" y="${H - 8}" fill="#64748B" font-size="10">${fmtDate(pts[0].d)}</text>
+        <text x="${W - PR}" y="${H - 8}" fill="#64748B" font-size="10" text-anchor="end">${fmtDate(pts[pts.length - 1].d)}</text>
+        <polyline points="${line}" fill="none" stroke="#A3E635" stroke-width="2" stroke-linejoin="round"/>
+        ${dots}
+    </svg>`;
+}
+
+function supplierBlock(hist) {
+    if (!hist.length) return '';
+    const bySup = new Map();
+    for (const p of hist) {
+        const s = p.supplier || 'Inconnu';
+        const e = bySup.get(s) || { count: 0, min: Infinity, max: -Infinity, sum: 0, last: 0, lastD: '' };
+        e.count++; e.sum += p.unit_price;
+        e.min = Math.min(e.min, p.unit_price); e.max = Math.max(e.max, p.unit_price);
+        const d = p.purchase_date || p.created_at;
+        if (d >= e.lastD) { e.lastD = d; e.last = p.unit_price; }
+        bySup.set(s, e);
+    }
+    const comp = [...bySup].map(([supplier, e]) => ({
+        supplier, count: e.count, min: e.min, max: e.max, avg: e.sum / e.count, last: e.last,
+    })).sort((a, b) => b.count - a.count);
+    const maxAvg = Math.max(...comp.map(c => c.avg)) || 1;
+    return `
+    <div class="hist-title">Comparaison fournisseurs</div>
+    <div class="chart-box">
+        ${comp.map(c => `
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:7px;font-size:12px">
+            <span style="width:140px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0" title="${esc(c.supplier)}">${esc(c.supplier)}</span>
+            <div style="flex:1;background:rgba(255,255,255,.04);border-radius:4px;height:14px;overflow:hidden">
+                <div style="width:${(c.avg / maxAvg * 100).toFixed(1)}%;background:linear-gradient(90deg,#60A5FA,#A3E635);height:100%;border-radius:4px"></div>
+            </div>
+            <span class="num" style="width:75px;text-align:right;flex-shrink:0">${fmtEur(c.avg)}</span>
+        </div>`).join('')}
+        <table class="supp-table">
+            <thead><tr><th>Fournisseur</th><th>Nb</th><th>Min</th><th>Moy</th><th>Max</th><th>Dernier</th></tr></thead>
+            <tbody>${comp.map(c => `<tr>
+                <td>${esc(c.supplier)}</td><td>${c.count}</td>
+                <td style="color:#34D399">${fmtEur(c.min)}</td><td>${fmtEur(c.avg)}</td>
+                <td style="color:#F87171">${fmtEur(c.max)}</td><td style="font-weight:600">${fmtEur(c.last)}</td>
+            </tr>`).join('')}</tbody>
+        </table>
+    </div>`;
 }
 
 function openMaterial(id) {
@@ -683,6 +791,8 @@ function openMaterial(id) {
                     <div class="info-card"><div class="l">Nb achats</div><div class="v accent">${nb}</div></div>
                     <div class="info-card"><div class="l">Dernière commande</div><div class="v">${fmtDate(lastDate)}</div></div>
                 </div>
+                ${supplierBlock(hist)}
+                ${priceChartSVG(hist) ? `<div class="hist-title">Évolution du prix unitaire</div><div class="chart-box">${priceChartSVG(hist)}</div>` : ''}
                 <div class="hist-title">Historique des achats (${nb})</div>
                 ${nb === 0 ? '<div style="color:var(--text-faint);font-size:13px;padding:12px 0">Aucun achat enregistré pour cet article.</div>' :
                     hist.map(p => `
@@ -691,7 +801,7 @@ function openMaterial(id) {
                         ${p.supplier ? `<span class="who">${esc(p.supplier)}</span>` : ''}
                         <span class="what">${p.quantity} × ${fmtEur(p.unit_price)} = <b style="color:var(--text)">${fmtEur(p.quantity * p.unit_price)}</b></span>
                         ${p.projects?.name ? `<span class="chantier-badge">${esc(p.projects.name)}</span>` : ''}
-                        ${docBadge(p)}
+                        ${docsOf(p).map(docBadgeDoc).join('')}
                     </div>`).join('')}
             </div>
         </div>
