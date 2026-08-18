@@ -233,7 +233,7 @@ const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsI
 
 // ─── État ────────────────────────────────────────────────────────────────────
 
-const DB = { materials: [], purchases: [], avgPrice: new Map() };
+const DB = { materials: [], purchases: [], avgPrice: new Map(), purchaseCount: new Map() };
 
 const cat = { search: '', category: 'Tous', brand: '', gamme: '', sort: 'designation', dir: 'asc', page: 1 };
 const pur = { search: '', project: '', supplier: '', period: 'all', sort: 'date', dir: 'desc', page: 1 };
@@ -276,7 +276,7 @@ async function loadData(force) {
     btn.innerHTML = '<span class="pulse">↻</span> Chargement…';
     try {
         const [materials, purchases] = await Promise.all([
-            fetchAll('materials', 'materials?select=id,reference,designation,brand,gamme,category,unit,is_favorite,last_purchase_price,purchase_count,created_at&order=designation'),
+            fetchAll('materials', 'materials?select=id,reference,designation,brand,gamme,category,unit,is_favorite,last_purchase_price,created_at&order=designation'),
             fetchAll('purchases', 'purchases?select=id,quantity,unit_price,supplier,purchase_date,created_at,doc_reference,material_id,materials(reference,designation,brand),projects(name)&order=purchase_date.desc.nullslast,created_at.desc'),
         ]);
         DB.materials = materials;
@@ -308,6 +308,12 @@ function computeAvgPrices() {
         acc.set(p.material_id, e);
     }
     DB.avgPrice = new Map([...acc].filter(([, v]) => v.q > 0).map(([k, v]) => [k, v.s / v.q]));
+    // Nb d'achats par article (calculé côté client : pas de colonne en base)
+    const counts = new Map();
+    for (const p of DB.purchases) {
+        if (p.material_id) counts.set(p.material_id, (counts.get(p.material_id) || 0) + 1);
+    }
+    DB.purchaseCount = counts;
 }
 
 // ─── Navigation ──────────────────────────────────────────────────────────────
@@ -349,7 +355,7 @@ function catalogFiltered() {
             case 'gamme': return cs(a.gamme, b.gamme);
             case 'created_at': return (a.created_at < b.created_at ? -1 : 1) * dir;
             case 'last_price': return ((a.last_purchase_price ?? -1) - (b.last_purchase_price ?? -1)) * dir;
-            case 'purchase_count': return ((a.purchase_count ?? 0) - (b.purchase_count ?? 0)) * dir;
+            case 'purchase_count': return ((DB.purchaseCount.get(a.id) || 0) - (DB.purchaseCount.get(b.id) || 0)) * dir;
             default: return a.designation.localeCompare(b.designation, 'fr') * dir;
         }
     });
@@ -401,7 +407,7 @@ function renderCatalogue() {
 
     <div class="stats">
         <div class="stat"><div class="v accent">${filtered.length}</div><div class="l">articles</div></div>
-        <div class="stat"><div class="v">${filtered.reduce((n, m) => n + (m.purchase_count || 0), 0)}</div><div class="l">achats cumulés</div></div>
+        <div class="stat"><div class="v">${filtered.reduce((n, m) => n + (DB.purchaseCount.get(m.id) || 0), 0)}</div><div class="l">achats cumulés</div></div>
         <div class="stat"><div class="v">${new Set(filtered.map(m => m.brand).filter(Boolean)).size}</div><div class="l">marques</div></div>
     </div>
 
@@ -412,7 +418,9 @@ function renderCatalogue() {
             <th>Dernier prix</th><th>Prix moyen 6m</th><th>Nb achats</th>
         </tr></thead>
         <tbody>
-        ${paged.length === 0 ? `<tr><td colspan="10" class="empty">Aucun article ne correspond aux filtres.</td></tr>` : paged.map(m => `
+        ${paged.length === 0 ? `<tr><td colspan="10" class="empty">Aucun article ne correspond aux filtres.</td></tr>` : paged.map(m => {
+            const nbAchats = DB.purchaseCount.get(m.id) || 0;
+            return `
             <tr>
                 <td><span class="star ${m.is_favorite ? '' : 'off'}">${m.is_favorite ? '★' : '☆'}</span></td>
                 <td class="l"><span class="ref">${esc(m.reference)}</span></td>
@@ -423,8 +431,8 @@ function renderCatalogue() {
                 <td>${esc(m.unit)}</td>
                 <td class="num">${fmtEur(m.last_purchase_price)}</td>
                 <td class="num">${DB.avgPrice.has(m.id) ? fmtEur(DB.avgPrice.get(m.id)) : '—'}</td>
-                <td class="num" style="color:${(m.purchase_count || 0) > 0 ? 'var(--lime)' : 'var(--text-faint)'}">${m.purchase_count || 0}</td>
-            </tr>`).join('')}
+                <td class="num" style="color:${nbAchats > 0 ? 'var(--lime)' : 'var(--text-faint)'}">${nbAchats}</td>
+            </tr>`; }).join('')}
         </tbody>
     </table></div>
     ${pager(filtered.length, cat.page, 'catPage')}`;
