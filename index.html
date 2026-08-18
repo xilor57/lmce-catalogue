@@ -177,6 +177,63 @@
     .pulse { animation: pulse 1.2s ease-in-out infinite; display: inline-block; }
     @keyframes pulse { 50% { opacity: .3; transform: rotate(20deg); } }
 
+    /* ─── Modales ─── */
+    .modal-overlay {
+        position: fixed; inset: 0; background: rgba(0,0,0,.6);
+        z-index: 50; display: flex; align-items: center; justify-content: center;
+        padding: 24px; backdrop-filter: blur(3px);
+    }
+    .modal {
+        background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+        max-width: 660px; width: 100%; max-height: 88vh; overflow-y: auto;
+        box-shadow: 0 20px 60px rgba(0,0,0,.5);
+    }
+    .modal.wide { max-width: 1020px; height: 88vh; display: flex; flex-direction: column; overflow: hidden; }
+    .modal-head {
+        padding: 18px 22px; border-bottom: 1px solid var(--border);
+        display: flex; justify-content: space-between; gap: 16px; align-items: flex-start;
+    }
+    .modal-head h2 { font-size: 17px; font-weight: 700; margin: 2px 0 6px; }
+    .modal-head .ref-lg { font-family: Consolas, monospace; font-size: 12px; color: var(--blue); }
+    .modal-close { background: none; border: none; color: var(--text-faint); font-size: 26px; cursor: pointer; line-height: 1; padding: 0 4px; }
+    .modal-close:hover { color: var(--text); }
+    .modal-body { padding: 18px 22px; }
+    .modal-sub { font-size: 12px; color: var(--text-muted); display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+
+    .info-cards { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+    .info-card { flex: 1 1 130px; padding: 10px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
+    .info-card .l { font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+    .info-card .v { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .info-card .v.accent { color: var(--lime); }
+
+    .hist-title { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 10px; }
+    .hist-item {
+        padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border);
+        background: var(--bg); margin-bottom: 8px;
+        display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px;
+    }
+    .hist-item .when { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .hist-item .who { font-weight: 600; color: var(--text-muted); }
+    .hist-item .what { color: var(--text-faint); font-variant-numeric: tabular-nums; }
+    .chantier-badge {
+        padding: 1px 7px; border-radius: 4px; background: var(--blue-dim);
+        color: var(--blue); font-size: 10px; font-weight: 600;
+    }
+
+    .doc-badge {
+        display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px;
+        border-radius: 6px; font-size: 10px; font-weight: 700;
+        cursor: pointer; border: 1px solid; transition: filter .15s;
+    }
+    .doc-badge:hover { filter: brightness(1.4); }
+    .doc-iframe { flex: 1; border: none; background: #525659; }
+    .doc-fallback { padding: 8px 22px; font-size: 12px; color: var(--text-faint); border-top: 1px solid var(--border); }
+    .doc-fallback a { color: var(--blue); }
+
+    tr.rowlink { cursor: pointer; }
+    .clickable-ref { cursor: pointer; border-bottom: 1px dotted var(--blue); }
+    .clickable-ref:hover { color: var(--lime); border-bottom-color: var(--lime); }
+
     footer {
         text-align: center; padding: 20px; color: var(--text-faint); font-size: 11px;
         border-top: 1px solid var(--border);
@@ -223,7 +280,10 @@
     <div class="loader"><div class="spin"></div>Chargement des données…</div>
 </main>
 
-<footer>Données en lecture seule · mise à jour en direct depuis la base LMCE</footer>
+<div id="modalRoot"></div>
+<div id="docRoot"></div>
+
+<footer>Données en lecture seule · actualisation automatique toutes les 5 minutes</footer>
 
 <script>
 'use strict';
@@ -270,6 +330,8 @@ async function fetchAll(table, query) {
     return all;
 }
 
+let lastLoad = 0;
+
 async function loadData(force) {
     const btn = document.getElementById('btnRefresh');
     btn.disabled = true;
@@ -277,10 +339,11 @@ async function loadData(force) {
     try {
         const [materials, purchases] = await Promise.all([
             fetchAll('materials', 'materials?select=id,reference,designation,brand,gamme,category,unit,is_favorite,last_purchase_price,created_at&order=designation'),
-            fetchAll('purchases', 'purchases?select=id,quantity,unit_price,supplier,purchase_date,created_at,doc_reference,material_id,materials(reference,designation,brand),projects(name)&order=purchase_date.desc.nullslast,created_at.desc'),
+            fetchAll('purchases', 'purchases?select=id,quantity,unit_price,supplier,purchase_date,created_at,doc_type,doc_reference,doc_drive_file_id,material_id,materials(reference,designation,brand),projects(name)&order=purchase_date.desc.nullslast,created_at.desc'),
         ]);
         DB.materials = materials;
         DB.purchases = purchases;
+        lastLoad = Date.now();
         computeAvgPrices();
         document.getElementById('countMaterials').textContent = materials.length;
         document.getElementById('countPurchases').textContent = purchases.length;
@@ -421,7 +484,7 @@ function renderCatalogue() {
         ${paged.length === 0 ? `<tr><td colspan="10" class="empty">Aucun article ne correspond aux filtres.</td></tr>` : paged.map(m => {
             const nbAchats = DB.purchaseCount.get(m.id) || 0;
             return `
-            <tr>
+            <tr class="rowlink" onclick="openMaterial('${m.id}')" title="Cliquer pour voir la fiche article">
                 <td><span class="star ${m.is_favorite ? '' : 'off'}">${m.is_favorite ? '★' : '☆'}</span></td>
                 <td class="l"><span class="ref">${esc(m.reference)}</span></td>
                 <td class="l desig" title="${esc(m.designation)}">${esc(m.designation)}</td>
@@ -514,19 +577,22 @@ function renderAchats() {
     <div class="table-wrap"><table>
         <thead><tr>
             <th class="l">Date</th><th class="l">Référence</th><th class="l">Désignation</th>
-            <th>Qté</th><th>Prix unit.</th><th>Total HT</th><th>Fournisseur</th><th>Chantier</th>
+            <th>Qté</th><th>Prix unit.</th><th>Total HT</th><th>Fournisseur</th><th>Chantier</th><th>Doc</th>
         </tr></thead>
         <tbody>
-        ${paged.length === 0 ? `<tr><td colspan="8" class="empty">Aucun achat ne correspond aux filtres.</td></tr>` : paged.map(p => `
+        ${paged.length === 0 ? `<tr><td colspan="9" class="empty">Aucun achat ne correspond aux filtres.</td></tr>` : paged.map(p => `
             <tr>
                 <td class="l num">${fmtDate(p.purchase_date || p.created_at)}</td>
-                <td class="l"><span class="ref">${esc(p.materials?.reference) || '—'}</span></td>
+                <td class="l">${p.materials?.reference
+                    ? `<span class="ref clickable-ref" title="Voir cet article dans le catalogue" onclick="gotoCatalogueRef(decodeURIComponent('${encodeURIComponent(p.materials.reference)}'))">${esc(p.materials.reference)}</span>`
+                    : '—'}</td>
                 <td class="l desig" title="${esc(p.materials?.designation || '')}">${esc(p.materials?.designation) || '—'}</td>
                 <td class="num">${p.quantity}</td>
                 <td class="num">${fmtEur(p.unit_price)}</td>
                 <td class="num" style="color:var(--lime);font-weight:600">${fmtEur(p.quantity * p.unit_price)}</td>
                 <td>${esc(p.supplier) || '—'}</td>
                 <td style="font-size:12px">${esc(p.projects?.name) || '<span style="color:var(--text-faint)">—</span>'}</td>
+                <td>${docBadge(p)}</td>
             </tr>`).join('')}
         </tbody>
     </table></div>
@@ -564,9 +630,120 @@ function purSort(v) { pur.sort = v; pur.dir = v === 'date' || v === 'amount' ? '
 function purDir() { pur.dir = pur.dir === 'asc' ? 'desc' : 'asc'; render(); }
 function purPage(d) { pur.page += d; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
 
+// ─── Fiche article & aperçu documents ───────────────────────────────────────
+
+const DOC_META = {
+    devis:                 { label: 'DEVIS',       color: '#F59E0B' },
+    devis_signe:           { label: 'DEVIS SIGNÉ', color: '#10B981' },
+    confirmation_commande: { label: 'CC / AR',     color: '#3B82F6' },
+    facture:               { label: 'FACTURE',     color: '#8B5CF6' },
+};
+
+function docBadge(p) {
+    if (!p.doc_type) return '<span style="color:var(--text-faint)">—</span>';
+    const meta = DOC_META[p.doc_type] || { label: p.doc_type.toUpperCase(), color: '#9CA3AF' };
+    const label = meta.label + (p.doc_reference ? ' ' + p.doc_reference : '');
+    if (!p.doc_drive_file_id) {
+        return `<span class="doc-badge" style="color:${meta.color};border-color:${meta.color}55;background:${meta.color}18;cursor:default">${esc(label)}</span>`;
+    }
+    return `<span class="doc-badge" style="color:${meta.color};border-color:${meta.color}55;background:${meta.color}18"
+        title="Aperçu du document"
+        onclick="event.stopPropagation();openDoc('${p.doc_drive_file_id}', decodeURIComponent('${encodeURIComponent(label)}'))">${esc(label)} 👁</span>`;
+}
+
+function openMaterial(id) {
+    const m = DB.materials.find(x => x.id === id);
+    if (!m) return;
+    const hist = DB.purchases.filter(p => p.material_id === id); // déjà trié date desc
+    const nb = hist.length;
+    const avg = DB.avgPrice.get(id);
+    const lastDate = hist.length ? (hist[0].purchase_date || hist[0].created_at) : null;
+
+    document.getElementById('modalRoot').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeMaterial()">
+        <div class="modal">
+            <div class="modal-head">
+                <div>
+                    <div class="ref-lg">${esc(m.reference)}</div>
+                    <h2>${esc(m.designation)}</h2>
+                    <div class="modal-sub">
+                        ${m.brand ? `<span>Marque : <b style="color:var(--text)">${esc(m.brand)}</b></span>` : ''}
+                        ${m.gamme ? `<span>Gamme : <b style="color:var(--text)">${esc(m.gamme)}</b></span>` : ''}
+                        ${m.category ? `<span class="cat-badge">${esc(m.category)}</span>` : ''}
+                        <span>Unité : <b style="color:var(--text)">${esc(m.unit)}</b></span>
+                        ${m.is_favorite ? '<span class="star">★</span>' : ''}
+                    </div>
+                </div>
+                <button class="modal-close" onclick="closeMaterial()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="info-cards">
+                    <div class="info-card"><div class="l">Dernier prix achat</div><div class="v">${fmtEur(m.last_purchase_price)}</div></div>
+                    <div class="info-card"><div class="l">Prix moyen 6 mois</div><div class="v">${avg != null ? fmtEur(avg) : '—'}</div></div>
+                    <div class="info-card"><div class="l">Nb achats</div><div class="v accent">${nb}</div></div>
+                    <div class="info-card"><div class="l">Dernière commande</div><div class="v">${fmtDate(lastDate)}</div></div>
+                </div>
+                <div class="hist-title">Historique des achats (${nb})</div>
+                ${nb === 0 ? '<div style="color:var(--text-faint);font-size:13px;padding:12px 0">Aucun achat enregistré pour cet article.</div>' :
+                    hist.map(p => `
+                    <div class="hist-item">
+                        <span class="when">${fmtDate(p.purchase_date || p.created_at)}</span>
+                        ${p.supplier ? `<span class="who">${esc(p.supplier)}</span>` : ''}
+                        <span class="what">${p.quantity} × ${fmtEur(p.unit_price)} = <b style="color:var(--text)">${fmtEur(p.quantity * p.unit_price)}</b></span>
+                        ${p.projects?.name ? `<span class="chantier-badge">${esc(p.projects.name)}</span>` : ''}
+                        ${docBadge(p)}
+                    </div>`).join('')}
+            </div>
+        </div>
+    </div>`;
+}
+
+function closeMaterial() { document.getElementById('modalRoot').innerHTML = ''; }
+
+function openDoc(fileId, label) {
+    document.getElementById('docRoot').innerHTML = `
+    <div class="modal-overlay" style="z-index:60" onclick="if(event.target===this)closeDoc()">
+        <div class="modal wide">
+            <div class="modal-head">
+                <div><h2 style="margin:0">📄 ${esc(label)}</h2></div>
+                <button class="modal-close" onclick="closeDoc()">&times;</button>
+            </div>
+            <iframe class="doc-iframe" src="https://drive.google.com/file/d/${encodeURIComponent(fileId)}/preview" allow="autoplay"></iframe>
+            <div class="doc-fallback">
+                L'aperçu nécessite un compte Google ayant accès au Drive LMCE.
+                <a href="https://drive.google.com/file/d/${encodeURIComponent(fileId)}/view" target="_blank" rel="noopener">Ouvrir dans Google Drive ↗</a>
+            </div>
+        </div>
+    </div>`;
+}
+
+function closeDoc() { document.getElementById('docRoot').innerHTML = ''; }
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+        if (document.getElementById('docRoot').firstChild) closeDoc();
+        else closeMaterial();
+    }
+});
+
+// ─── Lien Achats → Catalogue ─────────────────────────────────────────────────
+
+function gotoCatalogueRef(ref) {
+    cat.search = ref;
+    cat.page = 1;
+    switchTab('catalogue');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
 // ─── Init ────────────────────────────────────────────────────────────────────
 
 loadData();
+
+// Auto-actualisation : toutes les 5 min, et au retour sur l'onglet si > 2 min
+setInterval(() => { if (!document.hidden) loadData(true); }, 5 * 60 * 1000);
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && Date.now() - lastLoad > 2 * 60 * 1000) loadData(true);
+});
 </script>
 </body>
 </html>
