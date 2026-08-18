@@ -693,6 +693,10 @@ function toggleDocs(id) {
     render();
 }
 
+// Fiche article ouverte + page courante de son historique
+let currentMaterialId = null;
+let currentHistPage = 1;
+
 // ─── Graphiques (SVG maison, aucune librairie) ──────────────────────────────
 
 function priceChartSVG(hist) {
@@ -759,11 +763,17 @@ function supplierBlock(hist) {
     </div>`;
 }
 
-function openMaterial(id) {
+function openMaterial(id, histPage = 1) {
     const m = DB.materials.find(x => x.id === id);
     if (!m) return;
+    currentMaterialId = id;
+    currentHistPage = histPage;
     const hist = DB.purchases.filter(p => p.material_id === id); // déjà trié date desc
     const nb = hist.length;
+    const HIST_PER_PAGE = 5;
+    const histPages = Math.max(1, Math.ceil(nb / HIST_PER_PAGE));
+    if (histPage > histPages) histPage = currentHistPage = histPages;
+    const histPaged = hist.slice((histPage - 1) * HIST_PER_PAGE, histPage * HIST_PER_PAGE);
     const avg = DB.avgPrice.get(id);
     const lastDate = hist.length ? (hist[0].purchase_date || hist[0].created_at) : null;
 
@@ -795,7 +805,7 @@ function openMaterial(id) {
                 ${priceChartSVG(hist) ? `<div class="hist-title">Évolution du prix unitaire</div><div class="chart-box">${priceChartSVG(hist)}</div>` : ''}
                 <div class="hist-title">Historique des achats (${nb})</div>
                 ${nb === 0 ? '<div style="color:var(--text-faint);font-size:13px;padding:12px 0">Aucun achat enregistré pour cet article.</div>' :
-                    hist.map(p => `
+                    histPaged.map(p => `
                     <div class="hist-item">
                         <span class="when">${fmtDate(p.purchase_date || p.created_at)}</span>
                         ${p.supplier ? `<span class="who">${esc(p.supplier)}</span>` : ''}
@@ -803,12 +813,18 @@ function openMaterial(id) {
                         ${p.projects?.name ? `<span class="chantier-badge">${esc(p.projects.name)}</span>` : ''}
                         ${docsOf(p).map(docBadgeDoc).join('')}
                     </div>`).join('')}
+                ${histPages > 1 ? `
+                <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-top:6px;font-size:12px;color:var(--text-faint)">
+                    <button class="doc-btn" ${histPage <= 1 ? 'disabled style="opacity:.4;cursor:default"' : ''} onclick="openMaterial(currentMaterialId, ${histPage - 1})">← Précédent</button>
+                    <span>${histPage} / ${histPages}</span>
+                    <button class="doc-btn" ${histPage >= histPages ? 'disabled style="opacity:.4;cursor:default"' : ''} onclick="openMaterial(currentMaterialId, ${histPage + 1})">Suivant →</button>
+                </div>` : ''}
             </div>
         </div>
     </div>`;
 }
 
-function closeMaterial() { document.getElementById('modalRoot').innerHTML = ''; }
+function closeMaterial() { document.getElementById('modalRoot').innerHTML = ''; currentMaterialId = null; }
 
 function openDoc(fileId, label) {
     document.getElementById('docRoot').innerHTML = `
