@@ -542,9 +542,9 @@ function purchasesFiltered() {
     const list = DB.purchases.filter(p => {
         const label = `${p.materials?.reference || ''} ${p.materials?.designation || ''} ${p.supplier || ''} ${p.doc_reference || ''}`.toLowerCase();
         if (s && !label.includes(s)) return false;
-        if (pur.project && p.projects?.name !== pur.project) return false;
-        if (pur.supplier === '__none__') { if (p.supplier) return false; }
-        else if (pur.supplier && (p.supplier || '') !== pur.supplier) return false;
+        if (pur.project === '__none__') { if (p.projects?.name) return false; }
+        else if (pur.project && p.projects?.name !== pur.project) return false;
+        if (pur.supplier && (p.supplier || '') !== pur.supplier) return false;
         if (minDate && (p.purchase_date || p.created_at) < minDate) return false;
         return true;
     });
@@ -562,8 +562,8 @@ function purchasesFiltered() {
 
 function renderAchats() {
     const projects = [...new Set(DB.purchases.map(p => p.projects?.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
+    const hasNoProject = DB.purchases.some(p => !p.projects?.name);
     const suppliers = [...new Set(DB.purchases.map(p => p.supplier).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
-    const hasNoSupplier = DB.purchases.some(p => !p.supplier);
 
     const filtered = purchasesFiltered();
     const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -578,13 +578,13 @@ function renderAchats() {
         <div class="filter-group"><label>Chantier</label>
             <select onchange="purSet('project', this.value)">
                 <option value="">Tous</option>
+                ${hasNoProject ? `<option value="__none__" ${pur.project === '__none__' ? 'selected' : ''}>Achats divers (sans chantier)</option>` : ''}
                 ${projects.map(n => `<option ${pur.project === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}
             </select>
         </div>
         <div class="filter-group"><label>Fournisseur</label>
             <select onchange="purSet('supplier', this.value)">
                 <option value="">Tous</option>
-                ${hasNoSupplier ? `<option value="__none__" ${pur.supplier === '__none__' ? 'selected' : ''}>Achats divers (sans fournisseur)</option>` : ''}
                 ${suppliers.map(n => `<option ${pur.supplier === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}
             </select>
         </div>
