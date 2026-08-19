@@ -324,6 +324,9 @@ const fmtDate = iso => {
     return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 };
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+// encodeURIComponent n'échappe PAS l'apostrophe → on la force en %27
+// pour pouvoir insérer le résultat dans un onclick='...' sans casser le JS
+const jsq = s => encodeURIComponent(String(s ?? '')).replace(/'/g, '%27');
 
 // ─── Chargement Supabase (lecture seule, GET uniquement) ─────────────────────
 
@@ -479,7 +482,7 @@ function renderCatalogue() {
     <div class="chips">
         <button class="chip ${cat.category === 'Tous' ? 'active' : ''}" onclick="catSet('category','Tous')">Tous</button>
         ${favCount ? `<button class="chip fav ${cat.category === 'Favoris' ? 'active' : ''}" onclick="catSet('category','Favoris')">★ Favoris (${favCount})</button>` : ''}
-        ${categories.map(c => `<button class="chip ${cat.category === c ? 'active' : ''}" onclick="catSet('category',decodeURIComponent('${encodeURIComponent(c)}'))">${esc(c)}</button>`).join('')}
+        ${categories.map(c => `<button class="chip ${cat.category === c ? 'active' : ''}" onclick="catSet('category',decodeURIComponent('${jsq(c)}'))">${esc(c)}</button>`).join('')}
     </div>
 
     <div class="stats">
@@ -601,7 +604,7 @@ function renderAchats() {
             <tr>
                 <td class="l num">${fmtDate(p.purchase_date || p.created_at)}</td>
                 <td class="l">${p.materials?.reference
-                    ? `<span class="ref clickable-ref" title="Voir cet article dans le catalogue" onclick="gotoCatalogueRef(decodeURIComponent('${encodeURIComponent(p.materials.reference)}'))">${esc(p.materials.reference)}</span>`
+                    ? `<span class="ref clickable-ref" title="Voir cet article dans le catalogue" onclick="gotoCatalogueRef(decodeURIComponent('${jsq(p.materials.reference)}'))">${esc(p.materials.reference)}</span>`
                     : '—'}</td>
                 <td class="l desig" title="${esc(p.materials?.designation || '')}">${esc(p.materials?.designation) || '—'}</td>
                 <td class="num">${p.quantity}</td>
@@ -683,7 +686,7 @@ function docBadgeDoc(d) {
     const style = `color:${meta.color};border-color:${meta.color}55;background:${meta.color}18`;
     if (!d.drive_file_id) return `<span class="doc-badge" style="${style};cursor:default">${esc(label)}</span>`;
     return `<span class="doc-badge" style="${style}" title="Aperçu du document"
-        onclick="event.stopPropagation();openDoc('${d.drive_file_id}', decodeURIComponent('${encodeURIComponent(label)}'))">${esc(label)} 👁</span>`;
+        onclick="event.stopPropagation();openDoc('${d.drive_file_id}', decodeURIComponent('${jsq(label)}'))">${esc(label)} 👁</span>`;
 }
 
 // Lignes de documents dépliées dans l'onglet Achats
