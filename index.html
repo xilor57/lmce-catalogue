@@ -307,9 +307,9 @@ const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsI
 
 // ─── État ────────────────────────────────────────────────────────────────────
 
-const DB = { materials: [], purchases: [], avgPrice: new Map(), purchaseCount: new Map() };
+const DB = { materials: [], purchases: [], avgPrice: new Map(), purchaseCount: new Map(), materialProjects: new Map() };
 
-const cat = { search: '', category: 'Tous', brand: '', gamme: '', sort: 'designation', dir: 'asc', page: 1 };
+const cat = { search: '', category: 'Tous', brand: '', gamme: '', project: '', sort: 'designation', dir: 'asc', page: 1 };
 const pur = { search: '', project: '', supplier: '', period: 'all', sort: 'date', dir: 'desc', page: 1 };
 let currentTab = 'catalogue';
 const PAGE_SIZE = 50;
@@ -390,10 +390,17 @@ function computeAvgPrices() {
     DB.avgPrice = new Map([...acc].filter(([, v]) => v.q > 0).map(([k, v]) => [k, v.s / v.q]));
     // Nb d'achats par article (calculé côté client : pas de colonne en base)
     const counts = new Map();
+    // Map article → chantiers (pour le filtre chantier du catalogue)
+    const matProj = new Map();
     for (const p of DB.purchases) {
         if (p.material_id) counts.set(p.material_id, (counts.get(p.material_id) || 0) + 1);
+        if (p.material_id && p.projects?.name) {
+            if (!matProj.has(p.material_id)) matProj.set(p.material_id, new Set());
+            matProj.get(p.material_id).add(p.projects.name);
+        }
     }
     DB.purchaseCount = counts;
+    DB.materialProjects = matProj;
 }
 
 // ─── Navigation ──────────────────────────────────────────────────────────────
@@ -417,6 +424,7 @@ function catalogFiltered() {
         if (cat.category !== 'Tous' && cat.category !== 'Favoris' && m.category !== cat.category) return false;
         if (cat.brand && m.brand !== cat.brand) return false;
         if (cat.gamme && m.gamme !== cat.gamme) return false;
+        if (cat.project && !(DB.materialProjects.get(m.id)?.has(cat.project))) return false;
         return true;
     });
     const dir = cat.dir === 'asc' ? 1 : -1;
@@ -446,6 +454,7 @@ function renderCatalogue() {
     const categories = [...new Set(DB.materials.map(m => m.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
     const brands = [...new Set(DB.materials.map(m => m.brand).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
     const gammes = [...new Set(DB.materials.filter(m => !cat.brand || m.brand === cat.brand).map(m => m.gamme).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
+    const projects = [...new Set(DB.purchases.map(p => p.projects?.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
     const favCount = DB.materials.filter(m => m.is_favorite).length;
 
     const filtered = catalogFiltered();
@@ -457,6 +466,12 @@ function renderCatalogue() {
     <div class="toolbar">
         <input class="search" placeholder="Rechercher référence, désignation, marque…"
             value="${esc(cat.search)}" oninput="catSearch(this.value)">
+        <div class="filter-group"><label>Chantier</label>
+            <select onchange="catSet('project', this.value)">
+                <option value="">Tous</option>
+                ${projects.map(n => `<option ${cat.project === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}
+            </select>
+        </div>
         <div class="filter-group"><label>Marque</label>
             <select onchange="catSet('brand', this.value)">
                 <option value="">Toutes</option>
@@ -527,7 +542,8 @@ function purchasesFiltered() {
     const list = DB.purchases.filter(p => {
         const label = `${p.materials?.reference || ''} ${p.materials?.designation || ''} ${p.supplier || ''} ${p.doc_reference || ''}`.toLowerCase();
         if (s && !label.includes(s)) return false;
-        if (pur.project && p.projects?.name !== pur.project) return false;
+        if (pur.project === '__none__') { if (p.projects?.name) return false; }
+        else if (pur.project && p.projects?.name !== pur.project) return false;
         if (pur.supplier && (p.supplier || '') !== pur.supplier) return false;
         if (minDate && (p.purchase_date || p.created_at) < minDate) return false;
         return true;
@@ -546,6 +562,7 @@ function purchasesFiltered() {
 
 function renderAchats() {
     const projects = [...new Set(DB.purchases.map(p => p.projects?.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
+    const hasNoProject = DB.purchases.some(p => !p.projects?.name);
     const suppliers = [...new Set(DB.purchases.map(p => p.supplier).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
 
     const filtered = purchasesFiltered();
@@ -561,6 +578,7 @@ function renderAchats() {
         <div class="filter-group"><label>Chantier</label>
             <select onchange="purSet('project', this.value)">
                 <option value="">Tous</option>
+                ${hasNoProject ? `<option value="__none__" ${pur.project === '__none__' ? 'selected' : ''}>Achats divers (sans chantier)</option>` : ''}
                 ${projects.map(n => `<option ${pur.project === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}
             </select>
         </div>
