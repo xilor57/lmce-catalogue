@@ -294,6 +294,19 @@
     <div class="loader"><div class="spin"></div>Chargement des données…</div>
 </main>
 
+<!-- Écran de verrouillage (mot de passe partagé) -->
+<div id="lockRoot" style="display:none;position:fixed;inset:0;z-index:1000;background:#0B1220;align-items:center;justify-content:center;">
+    <form id="lockForm" style="background:#111A2E;border:1px solid #1E2A45;border-radius:14px;padding:32px;width:320px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.5);">
+        <div style="font-size:34px;margin-bottom:6px;">🔒</div>
+        <div style="font-weight:700;font-size:16px;color:#E5EDFB;margin-bottom:4px;">Catalogue &amp; Achats</div>
+        <div style="font-size:12px;color:#7A8BA8;margin-bottom:18px;">Accès réservé LMCE — saisissez le mot de passe</div>
+        <input type="password" id="lockInput" placeholder="Mot de passe" autocomplete="current-password"
+            style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:1px solid #2A3B5E;background:#0B1220;color:#E5EDFB;font-size:14px;outline:none;" />
+        <div id="lockError" style="display:none;color:#F87171;font-size:12px;margin-top:8px;">Mot de passe incorrect</div>
+        <button type="submit" style="margin-top:14px;width:100%;padding:10px;border:none;border-radius:8px;background:#3B82F6;color:#fff;font-weight:600;font-size:14px;cursor:pointer;">Déverrouiller</button>
+    </form>
+</div>
+
 <div id="modalRoot"></div>
 <div id="docRoot"></div>
 
@@ -884,13 +897,57 @@ function gotoCatalogueRef(ref) {
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 
-loadData();
+// Verrou mot de passe : le hash SHA-256 est injecté au déploiement
+// (scripts/deploy-catalogue.mjs ← CATALOGUE_PASSWORD du .env). Jamais le mot de
+// passe en clair ici. Protection dissuasive : la clé anon reste lisible dans la
+// source — un visiteur techniquement motivé peut interroger l'API directement.
+const PASSWORD_HASH = '2810d542eef6ad636eb75d69ff0171efa957267d35e46117ffe00b5ccfd9d0d5';
+const AUTH_LS_KEY = 'lmce_catalogue_auth';
 
-// Auto-actualisation : toutes les 5 min, et au retour sur l'onglet si > 2 min
-setInterval(() => { if (!document.hidden) loadData(true); }, 5 * 60 * 1000);
-document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && Date.now() - lastLoad > 2 * 60 * 1000) loadData(true);
-});
+async function sha256Hex(text) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+let appStarted = false;
+function startApp() {
+    if (appStarted) return;
+    appStarted = true;
+    loadData();
+    // Auto-actualisation : toutes les 5 min, et au retour sur l'onglet si > 2 min
+    setInterval(() => { if (!document.hidden) loadData(true); }, 5 * 60 * 1000);
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && Date.now() - lastLoad > 2 * 60 * 1000) loadData(true);
+    });
+}
+
+function unlock() {
+    document.getElementById('lockRoot').style.display = 'none';
+    startApp();
+}
+
+(async function initLock() {
+    // Fichier non déployé (placeholder non injecté) = prévisualisation locale → pas de verrou.
+    if (PASSWORD_HASH.startsWith('__')) { unlock(); return; }
+    let stored = null;
+    try { stored = localStorage.getItem(AUTH_LS_KEY); } catch { /* navigation privée */ }
+    if (stored && stored === PASSWORD_HASH) { unlock(); return; }
+    const root = document.getElementById('lockRoot');
+    root.style.display = 'flex';
+    const input = document.getElementById('lockInput');
+    input.focus();
+    document.getElementById('lockForm').addEventListener('submit', async e => {
+        e.preventDefault();
+        const hash = await sha256Hex(input.value);
+        if (hash === PASSWORD_HASH) {
+            try { localStorage.setItem(AUTH_LS_KEY, hash); } catch { /* pas grave */ }
+            unlock();
+        } else {
+            document.getElementById('lockError').style.display = 'block';
+            input.select();
+        }
+    });
+})();
 </script>
 </body>
 </html>
