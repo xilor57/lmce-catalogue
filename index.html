@@ -310,13 +310,21 @@
 <div id="modalRoot"></div>
 <div id="docRoot"></div>
 
-<footer>Données en lecture seule · actualisation automatique toutes les 5 minutes</footer>
+<footer>Données en lecture seule · snapshot régénéré à chaque déploiement du catalogue</footer>
 
 <script>
 'use strict';
 
-const SUPABASE_URL = 'https://tngktylqmmzxbhxojcwt.supabase.co';
-const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRuZ2t0eWxxbW16eGJoeG9qY3d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNTczNjMsImV4cCI6MjA4ODYzMzM2M30.9wvNlFiz7D0PwE_z0-cFspl1-FFju79FZu1SrzHfJmE';
+// ─── Données statiques chiffrées ─────────────────────────────────────────────
+// Les données ne viennent plus de Supabase en direct : scripts/deploy-catalogue.mjs
+// génère un snapshot chiffré AES-GCM (data.json, servi par GitHub Pages) à chaque
+// déploiement. Résultat : zéro egress Supabase par visiteur, aucune clé API ici.
+// La clé est dérivée du mot de passe partagé (PBKDF2) — jamais stockée en clair.
+const DATA_URL = './data.json';
+const PBKDF2_SALT = 'lmce-catalogue-static-salt-v1'; // identique dans scripts/generate-catalogue-data.mjs
+const KEY_LS_KEY = 'lmce_catalogue_key';
+let dataKey = null;  // CryptoKey AES-GCM dérivée du mot de passe
+let envelope = null; // { v, iv, data } en base64
 
 // ─── État ────────────────────────────────────────────────────────────────────
 
@@ -341,23 +349,28 @@ const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = se
 // pour pouvoir insérer le résultat dans un onclick='...' sans casser le JS
 const jsq = s => encodeURIComponent(String(s ?? '')).replace(/'/g, '%27');
 
-// ─── Chargement Supabase (lecture seule, GET uniquement) ─────────────────────
+// ─── Chargement du snapshot (data.json chiffré, servi par GitHub Pages) ──────
 
-async function fetchAll(table, query) {
-    const CHUNK = 1000;
-    let from = 0, all = [];
-    for (;;) {
-        const sep = query.includes('?') ? '&' : '?';
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/${query}${sep}offset=${from}&limit=${CHUNK}`, {
-            headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
-        });
-        if (!res.ok) throw new Error(`${table}: HTTP ${res.status}`);
-        const rows = await res.json();
-        all = all.concat(rows);
-        if (rows.length < CHUNK) break;
-        from += CHUNK;
-    }
-    return all;
+const b64d = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+
+async function fetchEnvelope(bustCache) {
+    const res = await fetch(DATA_URL + (bustCache ? '?t=' + Date.now() : ''));
+    if (!res.ok) throw new Error(`data.json : HTTP ${res.status}`);
+    return res.json();
+}
+
+async function deriveKey(password) {
+    const material = await crypto.subtle.importKey(
+        'raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: new TextEncoder().encode(PBKDF2_SALT), iterations: 100000, hash: 'SHA-256' },
+        material, { name: 'AES-GCM', length: 256 }, true, ['decrypt']);
+}
+
+// Lève une OperationError si la clé est mauvaise (GCM vérifie l'intégrité)
+async function decryptEnvelope(env, key) {
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64d(env.iv) }, key, b64d(env.data));
+    return JSON.parse(new TextDecoder().decode(plain));
 }
 
 let lastLoad = 0;
@@ -367,19 +380,20 @@ async function loadData(force) {
     btn.disabled = true;
     btn.innerHTML = '<span class="pulse">↻</span> Chargement…';
     try {
-        const [materials, purchases] = await Promise.all([
-            fetchAll('materials', 'materials?select=id,reference,designation,brand,gamme,category,unit,is_favorite,last_purchase_price,created_at&order=designation'),
-            fetchAll('purchases', 'purchases?select=id,quantity,unit_price,supplier,purchase_date,created_at,doc_type,doc_reference,doc_drive_file_id,material_id,materials(reference,designation,brand),projects(name),purchase_documents(doc_type,doc_reference,drive_file_id,purchase_date)&order=purchase_date.desc.nullslast,created_at.desc'),
-        ]);
-        DB.materials = materials;
-        DB.purchases = purchases;
+        if (!envelope || force) envelope = await fetchEnvelope(true);
+        const payload = await decryptEnvelope(envelope, dataKey);
+        DB.materials = payload.materials;
+        DB.purchases = payload.purchases;
         lastLoad = Date.now();
         computeAvgPrices();
-        document.getElementById('countMaterials').textContent = materials.length;
-        document.getElementById('countPurchases').textContent = purchases.length;
-        document.getElementById('updatedAt').textContent = 'Mis à jour ' + new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        document.getElementById('countMaterials').textContent = payload.materials.length;
+        document.getElementById('countPurchases').textContent = payload.purchases.length;
+        const gen = new Date(payload.generatedAt);
+        document.getElementById('updatedAt').textContent = 'Données du ' + gen.toLocaleDateString('fr-FR')
+            + ' ' + gen.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
         render();
     } catch (e) {
+        if (e.name === 'OperationError') { forgetKeyAndLock(); return; } // clé invalide (mot de passe changé)
         document.getElementById('app').innerHTML =
             `<div class="error-box"><b>Erreur de chargement</b><br><br>${esc(e.message)}<br><br>Vérifiez votre connexion puis <a href="" style="color:#FCA5A5">rechargez la page</a>.</div>`;
     } finally {
@@ -897,28 +911,50 @@ function gotoCatalogueRef(ref) {
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 
-// Verrou mot de passe : le hash SHA-256 est injecté au déploiement
-// (scripts/deploy-catalogue.mjs ← CATALOGUE_PASSWORD du .env). Jamais le mot de
-// passe en clair ici. Protection dissuasive : la clé anon reste lisible dans la
-// source — un visiteur techniquement motivé peut interroger l'API directement.
-const PASSWORD_HASH = '5a84c24211dc33baab0b933ca9f9efc9d1711f990197669f1d29195ecc5a4439';
-const AUTH_LS_KEY = 'lmce_catalogue_auth';
+// ─── Verrou mot de passe ─────────────────────────────────────────────────────
+// Le mot de passe n'est ni stocké ni vérifié par hash : il dérive la clé AES-GCM
+// qui chiffre data.json. Un mauvais mot de passe = déchiffrement impossible.
+// La clé dérivée est mémorisée en localStorage (JWK) pour éviter de ressaisir le
+// mot de passe ; elle est invalide si le mot de passe change → re-verrouillage.
 
-async function sha256Hex(text) {
-    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+async function rememberKey(key) {
+    try {
+        const jwk = await crypto.subtle.exportKey('jwk', key);
+        localStorage.setItem(KEY_LS_KEY, JSON.stringify(jwk));
+    } catch { /* navigation privée */ }
+}
+
+async function recallKey() {
+    try {
+        const raw = localStorage.getItem(KEY_LS_KEY);
+        if (!raw) return null;
+        return await crypto.subtle.importKey('jwk', JSON.parse(raw), { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+    } catch { return null; }
+}
+
+// Clé mémorisée devenue invalide (mot de passe changé) → on reverrouille
+function forgetKeyAndLock() {
+    try { localStorage.removeItem(KEY_LS_KEY); } catch { /* pas grave */ }
+    dataKey = null;
+    const root = document.getElementById('lockRoot');
+    root.style.display = 'flex';
+    const err = document.getElementById('lockError');
+    err.textContent = 'Session expirée — ressaisissez le mot de passe';
+    err.style.display = 'block';
+    document.getElementById('lockInput').focus();
 }
 
 let appStarted = false;
 function startApp() {
-    if (appStarted) return;
-    appStarted = true;
-    loadData();
-    // Auto-actualisation : toutes les 5 min, et au retour sur l'onglet si > 2 min
-    setInterval(() => { if (!document.hidden) loadData(true); }, 5 * 60 * 1000);
-    document.addEventListener('visibilitychange', () => {
-        if (!document.hidden && Date.now() - lastLoad > 2 * 60 * 1000) loadData(true);
-    });
+    if (!appStarted) {
+        appStarted = true;
+        // Auto-actualisation : vérifie toutes les 5 min si un nouveau snapshot a été déployé
+        setInterval(() => { if (!document.hidden) loadData(true); }, 5 * 60 * 1000);
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && Date.now() - lastLoad > 2 * 60 * 1000) loadData(true);
+        });
+    }
+    loadData(true);
 }
 
 function unlock() {
@@ -927,24 +963,32 @@ function unlock() {
 }
 
 (async function initLock() {
-    // Fichier non déployé (placeholder non injecté) = prévisualisation locale → pas de verrou.
-    if (PASSWORD_HASH.startsWith('__')) { unlock(); return; }
-    let stored = null;
-    try { stored = localStorage.getItem(AUTH_LS_KEY); } catch { /* navigation privée */ }
-    if (stored && stored === PASSWORD_HASH) { unlock(); return; }
+    const stored = await recallKey();
+    if (stored) { dataKey = stored; unlock(); return; }
     const root = document.getElementById('lockRoot');
     root.style.display = 'flex';
     const input = document.getElementById('lockInput');
     input.focus();
     document.getElementById('lockForm').addEventListener('submit', async e => {
         e.preventDefault();
-        const hash = await sha256Hex(input.value);
-        if (hash === PASSWORD_HASH) {
-            try { localStorage.setItem(AUTH_LS_KEY, hash); } catch { /* pas grave */ }
+        const btn = e.target.querySelector('button');
+        btn.disabled = true;
+        try {
+            const key = await deriveKey(input.value);
+            envelope = await fetchEnvelope();
+            await decryptEnvelope(envelope, key); // la validation, c'est le déchiffrement
+            dataKey = key;
+            rememberKey(key);
             unlock();
-        } else {
-            document.getElementById('lockError').style.display = 'block';
+        } catch (err) {
+            const errEl = document.getElementById('lockError');
+            errEl.textContent = envelope
+                ? 'Mot de passe incorrect'
+                : 'Impossible de charger data.json — lancez d\'abord npm run deploy:catalogue';
+            errEl.style.display = 'block';
             input.select();
+        } finally {
+            btn.disabled = false;
         }
     });
 })();
