@@ -688,7 +688,21 @@ function pager(total, page, fn) {
 
 const rerender = debounce(render, 150);
 function render() {
+    // Le re-render reconstruit tout le DOM : mémorise le focus sur le champ
+    // recherche (et la position du curseur) pour le restaurer après, sinon
+    // chaque frappe sort l'utilisateur du champ.
+    const active = document.activeElement;
+    const wasSearch = !!(active && active.classList && active.classList.contains('search'));
+    const caret = wasSearch ? active.selectionStart : 0;
     document.getElementById('app').innerHTML = currentTab === 'catalogue' ? renderCatalogue() : renderAchats();
+    if (wasSearch) {
+        const input = document.querySelector('#app .search');
+        if (input) {
+            input.focus();
+            const pos = Math.min(caret ?? input.value.length, input.value.length);
+            try { input.setSelectionRange(pos, pos); } catch { /* type non textuel */ }
+        }
+    }
 }
 
 function catSearch(v) { cat.search = v; cat.page = 1; rerender(); }
